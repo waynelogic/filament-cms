@@ -1,0 +1,31 @@
+{
+    "name": "waynelogic/filament-cms",
+    "description": "Filament CMS plugin for Laravel",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "waynelogic",
+            "email": "prigoda.ad@gmail.com"
+        }
+    ],
+    "require": {
+        "filament/filament": "^4.0",
+        "filament/spatie-laravel-media-library-plugin": "^4.0",
+        "rap2hpoutre/laravel-log-viewer": "^2.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Waynelogic\\FilamentCms\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Waynelogic\\FilamentCms\\FilamentCmsServiceProvider"
+            ]
+        }
+    }
+}
