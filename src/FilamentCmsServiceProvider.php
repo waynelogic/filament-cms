@@ -21,6 +21,7 @@ class FilamentCmsServiceProvider extends PackageServiceProvider
             ->hasTranslations()
             ->runsMigrations()
             ->discoversMigrations()
+            ->hasRoute('web')
             ->hasInstallCommand(function (InstallCommand $command) {
                 $command
                     ->startWith(function(InstallCommand $command) {
