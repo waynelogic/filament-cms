@@ -1,0 +1,10 @@
+<?php
+
+namespace {{ namespace }};
+
+use Waynelogic\FilamentCms\System\Models\SettingModel;
+
+class {{class}} extends SettingModel
+{
+    protected string $code = '{{ code }}';
+}

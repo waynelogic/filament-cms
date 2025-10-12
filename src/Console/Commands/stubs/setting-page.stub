@@ -1,0 +1,21 @@
+<?php
+
+namespace {{ namespace }};
+
+use Filament\Schemas\Schema;
+use Waynelogic\FilamentCms\System\Filament\EditSetting;
+use {{ model_path }};
+
+class {{class}} extends EditSetting
+{
+    protected string $model = {{ model }}::class;
+
+    protected static ?string $title = '{{ page_title }}';
+
+    public function form(Schema $schema): Schema
+    {
+        return $schema->components([
+            //
+        ]);
+    }
+}

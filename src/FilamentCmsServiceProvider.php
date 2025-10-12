@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Config;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+use Waynelogic\FilamentCms\Console\Commands\MakeSettingCommand;
+use Waynelogic\FilamentCms\Console\Commands\MakeSettingModelCommand;
+use Waynelogic\FilamentCms\Console\Commands\MakeSettingPageCommand;
 use Waynelogic\FilamentCms\Models\BackendUser;
 
 class FilamentCmsServiceProvider extends PackageServiceProvider
@@ -19,6 +22,11 @@ class FilamentCmsServiceProvider extends PackageServiceProvider
         $package->name(static::$name)
             ->hasViews('filament-cms')
             ->hasTranslations()
+            ->hasCommands([
+                MakeSettingCommand::class,
+                MakeSettingModelCommand::class,
+                MakeSettingPageCommand::class,
+            ])
             ->runsMigrations()
             ->discoversMigrations()
             ->hasRoute('web')

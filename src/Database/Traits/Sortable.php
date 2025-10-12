@@ -1,103 +1,163 @@
 <?php namespace Waynelogic\FilamentCms\Database\Traits;
 
 use Illuminate\Database\Eloquent\Builder;
-use Exception;
-use Waynelogic\FilamentCms\Database\Scopes\SortableScope;
+use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Use this trait to make a model sortable.
+ * The model should have a default sort order column of "sort_order".
+ * Add the column to the table as follows:
+ *
+ * $table->integer('sort_order')->default(0);
+ * or
+ * $table->sortable() // will create a sortable column // can be used with custom column name
+ */
 trait Sortable
 {
     /**
-     * Boot the trait and apply the global scope.
+     * Инициализация трейта.
+     * Автоматически устанавливает позицию при создании новой модели.
      */
-    public static function bootSortable(): void
+    protected static function bootSortableModel(): void
     {
-        static::addGlobalScope(new SortableScope);
+        static::creating(function (Model $model) {
+            if ($model->shouldSort()) {
+                $model->{$model->getSortableField()} = $model->getNewHighestPosition() + 1;
+            }
+        });
 
-        static::creating(function ($model) {
-            $sortOrderColumn = $model->getSortOrderColumn();
-            $parentColumn = $model->getParentColumn();
-
-            if (is_null($model->$sortOrderColumn)) {
-                $maxSortOrder = static::query()
-                    ->when($model->$parentColumn, function (Builder $query) use ($parentColumn, $model) {
-                        return $query->where($parentColumn, $model->$parentColumn);
-                    }, function (Builder $query) {
-                        return $query->whereNull($query->getModel()->getParentColumn());
-                    })
-                    ->max($sortOrderColumn);
-
-                $model->$sortOrderColumn = ($maxSortOrder ?? 0) + 1;
+        static::deleted(function (Model $model) {
+            if ($model->shouldSort()) {
+                $model->shiftLowerPositions($model->getPosition());
             }
         });
     }
 
     /**
-     * Set the sort order of items within a parent group.
+     * Перемещает модель на указанную позицию.
      *
-     * @param array $itemIds
-     * @param mixed|null $parentId
-     * @return void
-     * @throws Exception
+     * @param int $newPosition Новая позиция
      */
-    public function setSortableOrder(array $itemIds, $parentId = null): void
+    public function moveTo(int $newPosition): void
     {
-        $sortOrderColumn = $this->getSortOrderColumn();
-        $parentColumn = $this->getParentColumn();
+        $oldPosition = $this->getPosition();
 
-        $query = $this->newQuery();
-        if ($parentId !== null) {
-            $query->where($parentColumn, $parentId);
-        } else {
-            $query->whereNull($parentColumn);
+        if ($newPosition === $oldPosition) {
+            return;
         }
 
-        $items = $query->whereIn($this->getKeyName(), $itemIds)
-            ->pluck($this->getKeyName(), $sortOrderColumn)
-            ->flip();
+        // Ограничиваем новую позицию рамками существующих
+        $newPosition = max(1, min($newPosition, $this->getNewHighestPosition()));
 
-        $updates = [];
-        foreach ($itemIds as $index => $id) {
-            if ($items->has($id)) {
-                $updates[] = [
-                    'id' => $id,
-                    $sortOrderColumn => $index + 1
-                ];
+        $this->buildSortableQuery()->where($this->getSortableField(), '=', $this->getKey())->update([
+            $this->getSortableField() => 0 // Временно "убираем" модель из списка
+        ]);
+
+        if ($newPosition > $oldPosition) {
+            // Сдвигаем вверх элементы, которые находятся между старой и новой позицией
+            $this->buildSortableQuery()
+                ->whereBetween($this->getSortableField(), [$oldPosition + 1, $newPosition])
+                ->decrement($this->getSortableField());
+        } else {
+            // Сдвигаем вниз элементы, которые находятся между новой и старой позицией
+            $this->buildSortableQuery()
+                ->whereBetween($this->getSortableField(), [$newPosition, $oldPosition - 1])
+                ->increment($this->getSortableField());
+        }
+
+        // Устанавливаем новую позицию для текущей модели
+        $this->buildSortableQuery()->where($this->getSortableField(), '=', 0)->update([
+            $this->getSortableField() => $newPosition
+        ]);
+
+        $this->{$this->getSortableField()} = $newPosition;
+    }
+
+    /**
+     * Сдвигает все элементы ниже указанной позиции вверх.
+     *
+     * @param int $fromPosition
+     */
+    protected function shiftLowerPositions(int $fromPosition): void
+    {
+        $this->buildSortableQuery()
+            ->where($this->getSortableField(), '>', $fromPosition)
+            ->decrement($this->getSortableField());
+    }
+
+    /**
+     * Получает текущую максимальную позицию в группе.
+     *
+     * @return int
+     */
+    protected function getNewHighestPosition(): int
+    {
+        return (int) $this->buildSortableQuery()->max($this->getSortableField()) ?? 0;
+    }
+
+    /**
+     * Scope для упорядочивания записей.
+     *
+     * @param Builder $query
+     * @return Builder
+     */
+    public function scopeOrdered(Builder $query): Builder
+    {
+        return $query->orderBy($this->getSortableField());
+    }
+
+    /**
+     * Создает базовый запрос для сортировки с учетом группы.
+     *
+     * @return Builder
+     */
+    public function buildSortableQuery(): Builder
+    {
+        $query = static::query();
+
+        if (method_exists($this, 'getSortableGroupFields')) {
+            foreach ($this->getSortableGroupFields() as $field) {
+                $query->where($field, $this->{$field});
             }
         }
 
-        if (count($updates) !== count($itemIds)) {
-            throw new Exception('Invalid setSortableOrder call - some IDs not found.');
-        }
-
-        foreach ($updates as $update) {
-            $this->newQuery()
-                ->where($this->getKeyName(), $update['id'])
-                ->update([$sortOrderColumn => $update[$sortOrderColumn]]);
-        }
+        return $query;
     }
 
     /**
-     * Get the "sort order" column name.
+     * Получает текущую позицию модели.
      *
-     * @return string
+     * @return int
      */
-    public function getSortOrderColumn(): string
+    public function getPosition(): int
     {
-        return defined('static::SORT_ORDER') ? static::SORT_ORDER : 'sort_order';
+        return (int) $this->{$this->getSortableField()};
     }
 
     /**
-     * Get the "parent" column name.
+     * Определяет, нужно ли применять сортировку к модели.
+     * По умолчанию - всегда да. Можно переопределить в модели.
+     *
+     * @return bool
+     */
+    public function shouldSort(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Возвращает имя поля для сортировки.
+     * По умолчанию 'position'. Можно переопределить в модели.
      *
      * @return string
      */
-    public function getParentColumn(): string
+    public function getSortableField(): string
     {
-        return defined('static::PARENT_COLUMN') ? static::PARENT_COLUMN : 'parent_id';
+        return 'sort_order';
     }
 
-    public function getQualifiedSortOrderColumn(): string
+    public function getQualifiedSortOrderColumn()
     {
-        return $this->qualifyColumn($this->getSortOrderColumn());
+        return $this->qualifyColumn($this->getSortableField());
     }
 }
