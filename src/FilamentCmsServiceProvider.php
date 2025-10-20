@@ -2,6 +2,7 @@
 
 namespace Waynelogic\FilamentCms;
 
+use Filament\Facades\Filament;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Config;
@@ -34,6 +35,10 @@ class FilamentCmsServiceProvider extends PackageServiceProvider
                 $command
                     ->startWith(function(InstallCommand $command) {
                         $command->info(__('filament-cms::commands.install.greeting'));
+
+                        if (empty(Filament::getPanels())) {
+                            $command->call('filament:install', ['--panels' => true]);
+                        }
 
                         if (Env::get('APP_URL') == 'http://localhost') {
                             $app_url = $command->ask(__('filament-cms::commands.install.set_url'));
