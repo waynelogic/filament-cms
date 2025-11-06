@@ -13,6 +13,13 @@ class ImageResizerController extends Controller
 {
     public function show($path, Request $request)
     {
+        $appUrl = rtrim(config('app.url'), '/');
+        if (str_starts_with($path, $appUrl)) {
+            $relativePath = substr($path, strlen($appUrl));
+            // Убираем возможный начальный слэш, чтобы получить путь относительно public/
+            $path = ltrim($relativePath, '/');
+        }
+
         // 1. Получение пути к оригинальному изображению
         $originalPath = public_path($path);
         if (!File::exists($originalPath)) {
