@@ -20,19 +20,6 @@ class BackendUser extends Authenticatable implements FilamentUser, HasMedia, Has
         return true;
     }
 
-    protected static function boot(): void
-    {
-        parent::boot();
-
-        static::created(function ($user) {
-            if (!$user->avatar) {
-                $hash = md5($user->email);
-                $url = 'https://gravatar.com/avatar/' . $hash;
-                $user->addMediaFromUrl($url)->toMediaCollection('admin_avatar');
-            }
-        });
-    }
-
     /**
      * The attributes that should be hidden for serialization.
      *

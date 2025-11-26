@@ -120,5 +120,12 @@ class FilamentCmsServiceProvider extends PackageServiceProvider
         Blueprint::macro('active', function (string $name = 'is_active', bool $default = true) {
             return $this->boolean($name)->default($default)->index();
         });
+
+        Blueprint::macro('publishable', function (bool $publishedByDefault = true) {
+            $this->boolean('is_published')->default($publishedByDefault);
+            $this->dateTime('published_at')->nullable()->useCurrent();
+
+            return $this;
+        });
     }
 }

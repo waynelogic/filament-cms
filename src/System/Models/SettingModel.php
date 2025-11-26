@@ -4,13 +4,19 @@ namespace Waynelogic\FilamentCms\System\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class SettingModel extends Model
+class SettingModel extends Model implements HasMedia
 {
+    use InteractsWithMedia;
+
     protected $table = 'system_settings';
+    protected $guarded = ['id', 'created_at', 'updated_at', 'code'];
 
     protected string $code;
-    protected $guarded = ['id', 'created_at', 'updated_at', 'code'];
+
+
     protected function casts(): array
     {
         return [
