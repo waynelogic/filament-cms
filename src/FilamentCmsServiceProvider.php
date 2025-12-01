@@ -6,9 +6,13 @@ use Filament\Facades\Filament;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Builder;
+// Package Tools
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+// Waynelogic
 use Waynelogic\FilamentCms\Console\Commands\MakeSettingCommand;
 use Waynelogic\FilamentCms\Console\Commands\MakeSettingModelCommand;
 use Waynelogic\FilamentCms\Console\Commands\MakeSettingPageCommand;
@@ -97,6 +101,19 @@ class FilamentCmsServiceProvider extends PackageServiceProvider
 
     private function registerBlueprints(): void
     {
+        Builder::macro('getTree', function (): Collection {
+            $grouped = $this->get()->groupBy('parent_id');
+
+            $fn = function ($parentId = null) use (&$fn, $grouped) {
+                return ($grouped[$parentId] ?? collect())->map(function ($item) use ($fn) {
+                    $item->setRelation('children', $fn($item->id));
+                    return $item;
+                })->values();
+            };
+
+            return $fn();
+        });
+
         Blueprint::macro('slug', function (string $column = 'slug', bool $nullable = true) {
             return $this->string($column)->unique()->nullable($nullable);
         });

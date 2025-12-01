@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Use this trait to make a model sortable.
@@ -11,153 +12,170 @@ use Illuminate\Database\Eloquent\Model;
  * $table->integer('sort_order')->default(0);
  * or
  * $table->sortable() // will create a sortable column // can be used with custom column name
+ *
+ * To change the sort order column name, add the following to your model:
+ * protected string $sortOrderColumn = 'sort_order';
+ *
+ * If you want to sort by parent column, add the following to your model:
+ * protected string $sortableParentColumn = 'parent_id';
  */
 trait Sortable
 {
     /**
-     * Инициализация трейта.
-     * Автоматически устанавливает позицию при создании новой модели.
+     * Boot the Sortable trait.
      */
-    protected static function bootSortableModel(): void
+    public static function bootSortable(): void
     {
+        static::addGlobalScope('sortable', function (Builder $builder) {
+            $model = $builder->getModel();
+
+            // Сначала — по родителю (если есть), затем — по порядку
+            if (property_exists($model, 'sortableParentColumn')) {
+                $builder->orderBy($model->sortableParentColumn);
+            }
+            $builder->orderBy($model->getSortOrderColumn());
+        });
+
         static::creating(function (Model $model) {
-            if ($model->shouldSort()) {
-                $model->{$model->getSortableField()} = $model->getNewHighestPosition() + 1;
-            }
-        });
-
-        static::deleted(function (Model $model) {
-            if ($model->shouldSort()) {
-                $model->shiftLowerPositions($model->getPosition());
-            }
+            $model->{$model->getSortOrderColumn()} = $model->getNextSortOrder();
         });
     }
 
     /**
-     * Перемещает модель на указанную позицию.
-     *
-     * @param int $newPosition Новая позиция
+     * Get next sort_order value (within parent group if applicable).
      */
-    public function moveTo(int $newPosition): void
+    protected function getNextSortOrder(): int
     {
-        $oldPosition = $this->getPosition();
+        $query = DB::table($this->getTable());
 
-        if ($newPosition === $oldPosition) {
-            return;
+        if (property_exists($this, 'sortableParentColumn')) {
+            $parentColumn = $this->sortableParentColumn;
+            $parentValue = $this->{$parentColumn} ?? null;
+            $query->where($parentColumn, $parentValue);
         }
 
-        // Ограничиваем новую позицию рамками существующих
-        $newPosition = max(1, min($newPosition, $this->getNewHighestPosition()));
+        $max = $query->max($this->getSortOrderColumn());
+        return $max === null ? 0 : $max + 1;
+    }
 
-        $this->buildSortableQuery()->where($this->getSortableField(), '=', $this->getKey())->update([
-            $this->getSortableField() => 0 // Временно "убираем" модель из списка
-        ]);
+    /**
+     * Column name for sort order.
+     */
+    public function getSortOrderColumn(): string
+    {
+        return property_exists($this, 'sortOrderColumn') ? $this->sortOrderColumn : 'sort_order';
+    }
 
-        if ($newPosition > $oldPosition) {
-            // Сдвигаем вверх элементы, которые находятся между старой и новой позицией
-            $this->buildSortableQuery()
-                ->whereBetween($this->getSortableField(), [$oldPosition + 1, $newPosition])
-                ->decrement($this->getSortableField());
-        } else {
-            // Сдвигаем вниз элементы, которые находятся между новой и старой позицией
-            $this->buildSortableQuery()
-                ->whereBetween($this->getSortableField(), [$newPosition, $oldPosition - 1])
-                ->increment($this->getSortableField());
+    // ────────────────────────────────
+    // 🔄 MOVE METHODS
+    // ────────────────────────────────
+
+    /**
+     * Переместить элемент на указанную позицию в группе (0-based index).
+     */
+    public function moveTo(int $index): self
+    {
+        $column = $this->getSortOrderColumn();
+
+        // Определяем группу (если есть родитель)
+        $query = DB::table($this->getTable());
+        $binds = [];
+        if (property_exists($this, 'sortableParentColumn')) {
+            $parentCol = $this->sortableParentColumn;
+            $parentVal = $this->{$parentCol} ?? null;
+            $query->where($parentCol, $parentVal);
+            $binds[$parentCol] = $parentVal;
         }
 
-        // Устанавливаем новую позицию для текущей модели
-        $this->buildSortableQuery()->where($this->getSortableField(), '=', 0)->update([
-            $this->getSortableField() => $newPosition
-        ]);
+        // Получаем все sort_order в группе, отсортированные
+        $orders = $query->orderBy($column)->pluck($column)->all();
 
-        $this->{$this->getSortableField()} = $newPosition;
-    }
+        // Убираем текущий элемент из списка (чтобы не дублировался)
+        $orders = array_filter($orders, fn($v) => $v != $this->{$column});
 
-    /**
-     * Сдвигает все элементы ниже указанной позиции вверх.
-     *
-     * @param int $fromPosition
-     */
-    protected function shiftLowerPositions(int $fromPosition): void
-    {
-        $this->buildSortableQuery()
-            ->where($this->getSortableField(), '>', $fromPosition)
-            ->decrement($this->getSortableField());
-    }
+        // Убеждаемся, что индекс в границах
+        $index = max(0, min($index, count($orders)));
 
-    /**
-     * Получает текущую максимальную позицию в группе.
-     *
-     * @return int
-     */
-    protected function getNewHighestPosition(): int
-    {
-        return (int) $this->buildSortableQuery()->max($this->getSortableField()) ?? 0;
-    }
+        // Вставляем текущий элемент в нужную позицию (временное значение — используем отрицательное или большое)
+        $tempOrder = -1;
+        $this->update([$column => $tempOrder]);
 
-    /**
-     * Scope для упорядочивания записей.
-     *
-     * @param Builder $query
-     * @return Builder
-     */
-    public function scopeOrdered(Builder $query): Builder
-    {
-        return $query->orderBy($this->getSortableField());
-    }
+        // Собираем новый порядок
+        $newOrders = array_values($orders);
+        array_splice($newOrders, $index, 0, [$tempOrder]);
 
-    /**
-     * Создает базовый запрос для сортировки с учетом группы.
-     *
-     * @return Builder
-     */
-    public function buildSortableQuery(): Builder
-    {
-        $query = static::query();
-
-        if (method_exists($this, 'getSortableGroupFields')) {
-            foreach ($this->getSortableGroupFields() as $field) {
-                $query->where($field, $this->{$field});
+        // Присваиваем новые значения: 0, 1, 2, ...
+        foreach ($newOrders as $newIndex => $orderVal) {
+            if ($orderVal === $tempOrder) {
+                $this->update([$column => $newIndex]);
+            } else {
+                DB::table($this->getTable())
+                    ->where($column, $orderVal)
+                    ->when(property_exists($this, 'sortableParentColumn'), function ($q) use ($binds) {
+                        $q->where($this->sortableParentColumn, $binds[$this->sortableParentColumn] ?? null);
+                    })
+                    ->update([$column => $newIndex]);
             }
         }
 
-        return $query;
+        // Обновляем модель локально
+        $this->setAttribute($column, $index);
+
+        return $this;
     }
 
     /**
-     * Получает текущую позицию модели.
-     *
-     * @return int
+     * Переместить элемент ПЕРЕД другим.
      */
-    public function getPosition(): int
+    public function moveBefore(self $target): self
     {
-        return (int) $this->{$this->getSortableField()};
+        return $this->moveToRelative($target, 'before');
     }
 
     /**
-     * Определяет, нужно ли применять сортировку к модели.
-     * По умолчанию - всегда да. Можно переопределить в модели.
-     *
-     * @return bool
+     * Переместить элемент ПОСЛЕ другого.
      */
-    public function shouldSort(): bool
+    public function moveAfter(self $target): self
     {
-        return true;
+        return $this->moveToRelative($target, 'after');
     }
 
     /**
-     * Возвращает имя поля для сортировки.
-     * По умолчанию 'position'. Можно переопределить в модели.
-     *
-     * @return string
+     * Вспомогательный метод для moveBefore / moveAfter.
      */
-    public function getSortableField(): string
+    protected function moveToRelative(self $target, string $position): self
     {
-        return 'sort_order';
-    }
+        // Убеждаемся, что оба в одной группе (если есть parent)
+        if (property_exists($this, 'sortableParentColumn')) {
+            $parentCol = $this->sortableParentColumn;
+            if ($this->{$parentCol} !== $target->{$parentCol}) {
+                // Можно бросить исключение или молча игнорировать — выбери по вкусу
+                // Здесь — мягко: просто обновляем parent и продолжаем
+                $this->update([$parentCol => $target->{$parentCol}]);
+                $this->{$parentCol} = $target->{$parentCol};
+            }
+        }
 
-    public function getQualifiedSortOrderColumn()
-    {
-        return $this->qualifyColumn($this->getSortableField());
+        // Перезагружаем список с учётом новой группы
+        $query = DB::table($this->getTable());
+        if (property_exists($this, 'sortableParentColumn')) {
+            $query->where($this->sortableParentColumn, $this->{$this->sortableParentColumn} ?? null);
+        }
+        $items = $query->orderBy($this->getSortOrderColumn())->pluck('id', $this->getSortOrderColumn())->all();
+
+        // Удаляем себя из списка (если есть)
+        $items = array_filter($items, fn($id) => $id != $this->getKey());
+
+        // Инвертируем для поиска позиции
+        $positions = array_flip($items);
+        $targetPos = $positions[$target->getKey()] ?? null;
+
+        if ($targetPos === null) {
+            // Цель не найдена — добавляем в конец
+            return $this->moveTo(count($items));
+        }
+
+        $newIndex = $position === 'before' ? $targetPos : $targetPos + 1;
+        return $this->moveTo($newIndex);
     }
 }
