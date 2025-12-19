@@ -28,12 +28,13 @@ trait Sortable
     {
         static::addGlobalScope('sortable', function (Builder $builder) {
             $model = $builder->getModel();
+            $table = $model->getTable();
+            $sortColumn = $model->getSortOrderColumn();
 
-            // Сначала — по родителю (если есть), затем — по порядку
             if (property_exists($model, 'sortableParentColumn')) {
-                $builder->orderBy($model->sortableParentColumn);
+                $builder->orderBy("{$table}.{$model->sortableParentColumn}");
             }
-            $builder->orderBy($model->getSortOrderColumn());
+            $builder->orderBy("{$table}.{$sortColumn}");
         });
 
         static::creating(function (Model $model) {
