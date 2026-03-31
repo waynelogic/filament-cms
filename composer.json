@@ -10,8 +10,8 @@
         }
     ],
     "require": {
-        "filament/filament": "^4.0",
-        "filament/spatie-laravel-media-library-plugin": "^4.0",
+        "filament/filament": ">=4.0",
+        "filament/spatie-laravel-media-library-plugin": ">=4.0",
         "rap2hpoutre/laravel-log-viewer": "^2.5",
         "ext-simplexml": "*",
         "ext-gd": "*"
